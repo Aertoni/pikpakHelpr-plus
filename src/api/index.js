@@ -90,20 +90,62 @@ function getHeader(){
   }
 }
 
-export async function getList(parent_id){
-  let url;
-  if (parent_id === "recent") {
-      url = `https://api-drive.mypikpak.com/drive/v1/events?thumbnail_size=SIZE_MEDIUM&limit=100`;
+function buildPagedUrl(baseUrl, pageToken) {
+  const url = new URL(baseUrl);
+  if (pageToken) {
+    url.searchParams.set('page_token', pageToken);
   } else {
-      url = `https://api-drive.mypikpak.com/drive/v1/files?thumbnail_size=SIZE_MEDIUM&limit=500&parent_id=${parent_id}&with_audit=true&filters=%7B%22phase%22%3A%7B%22eq%22%3A%22PHASE_TYPE_COMPLETE%22%7D%2C%22trashed%22%3A%7B%22eq%22%3Afalse%7D%7D`;
+    url.searchParams.delete('page_token');
   }
-  const result = await postData(url, {}, getHeader());
+  return url.toString();
+}
+
+async function fetchAllPages(baseUrl, listKey) {
+  const header = getHeader();
+  const merged = [];
+  let pageToken = '';
+  let lastResult = {};
+  let pageCount = 0;
+
+  while (pageCount < 1000) {
+    const result = await postData(buildPagedUrl(baseUrl, pageToken), {}, header);
+    const items = Array.isArray(result[listKey]) ? result[listKey] : [];
+
+    merged.push(...items);
+    lastResult = result;
+    pageCount++;
+
+    const nextPageToken = result.next_page_token || result.nextPageToken || '';
+    const hasMore = result.has_more ?? result.hasMore;
+
+    if (!nextPageToken || hasMore === false) {
+      break;
+    }
+
+    pageToken = nextPageToken;
+  }
+
+  return {
+    ...lastResult,
+    [listKey]: merged
+  };
+}
+
+export async function getList(parent_id){
   if (parent_id === "recent") {
+      const result = await fetchAllPages(
+        'https://api-drive.mypikpak.com/drive/v1/events?thumbnail_size=SIZE_MEDIUM&limit=100',
+        'events',
+      );
       return {
+          ...result,
           files: (result.events || []).map(event => event.reference_resource).filter(Boolean)
       };
   } else {
-      return result;
+      return fetchAllPages(
+        `https://api-drive.mypikpak.com/drive/v1/files?thumbnail_size=SIZE_MEDIUM&limit=500&parent_id=${parent_id}&with_audit=true&filters=%7B%22phase%22%3A%7B%22eq%22%3A%22PHASE_TYPE_COMPLETE%22%7D%2C%22trashed%22%3A%7B%22eq%22%3Afalse%7D%7D`,
+        'files',
+      );
   }
 }
 
