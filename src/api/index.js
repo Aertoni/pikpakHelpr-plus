@@ -91,19 +91,44 @@ function getHeader(){
 }
 
 export async function getList(parent_id){
-  let url;
+  const header = getHeader()
+  const files = []
+  let pageToken = ''
+  let pageCount = 0
+  let result = {}
+
   if (parent_id === "recent") {
-      url = `https://api-drive.mypikpak.com/drive/v1/events?thumbnail_size=SIZE_MEDIUM&limit=100`;
-  } else {
-      url = `https://api-drive.mypikpak.com/drive/v1/files?thumbnail_size=SIZE_MEDIUM&limit=500&parent_id=${parent_id}&with_audit=true&filters=%7B%22phase%22%3A%7B%22eq%22%3A%22PHASE_TYPE_COMPLETE%22%7D%2C%22trashed%22%3A%7B%22eq%22%3Afalse%7D%7D`;
+    do {
+      const url = new URL('https://api-drive.mypikpak.com/drive/v1/events?thumbnail_size=SIZE_MEDIUM&limit=100')
+      if (pageToken) url.searchParams.set('page_token', pageToken)
+
+      result = await postData(url.toString(), {}, header)
+      files.push(...(result.events || []).map(event => event.reference_resource).filter(Boolean))
+
+      pageToken = result.next_page_token || result.nextPageToken || ''
+      pageCount++
+    } while (pageToken && pageCount < 1000 && result.has_more !== false && result.hasMore !== false)
+
+    return {
+      ...result,
+      files
+    }
   }
-  const result = await postData(url, {}, getHeader());
-  if (parent_id === "recent") {
-      return {
-          files: (result.events || []).map(event => event.reference_resource).filter(Boolean)
-      };
-  } else {
-      return result;
+
+  do {
+    const url = new URL(`https://api-drive.mypikpak.com/drive/v1/files?thumbnail_size=SIZE_MEDIUM&limit=500&parent_id=${parent_id}&with_audit=true&filters=%7B%22phase%22%3A%7B%22eq%22%3A%22PHASE_TYPE_COMPLETE%22%7D%2C%22trashed%22%3A%7B%22eq%22%3Afalse%7D%7D`)
+    if (pageToken) url.searchParams.set('page_token', pageToken)
+
+    result = await postData(url.toString(), {}, header)
+    files.push(...(result.files || []))
+
+    pageToken = result.next_page_token || result.nextPageToken || ''
+    pageCount++
+  } while (pageToken && pageCount < 1000 && result.has_more !== false && result.hasMore !== false)
+
+  return {
+    ...result,
+    files
   }
 }
 
